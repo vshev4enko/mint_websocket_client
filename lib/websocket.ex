@@ -192,8 +192,20 @@ defmodule Websocket do
   end
 
   def handle_info({:internal, :close}, %State{conn: conn} = state) do
-    if conn, do: Mint.HTTP.close(conn)
-    {:noreply, state |> Map.put(:timer, nil) |> dispatch(:handle_disconnect, [{:local, :close}])}
+    {:ok, conn} =
+      if conn do
+        Mint.HTTP.close(conn)
+      else
+        {:ok, nil}
+      end
+
+    state =
+      state
+      |> Map.put(:conn, conn)
+      |> Map.put(:timer, nil)
+      |> dispatch(:handle_disconnect, [{:local, :close}])
+
+    {:noreply, state}
   end
 
   def handle_info(http_reply, %State{} = state)
@@ -223,9 +235,10 @@ defmodule Websocket do
 
       {:error, conn, error, response} ->
         state
-        |> handle_response(response)
         |> Map.put(:conn, conn)
         |> Map.put(:connected, false)
+        |> cancel_timer()
+        |> handle_response(response)
         |> dispatch(:handle_disconnect, [error])
 
       :unknown ->
@@ -348,7 +361,7 @@ defmodule Websocket do
              :handle_cast,
              :handle_info
            ] ->
-        _ = send_if_connected(state, {:close, code, reason})
+        send_if_connected(state, {:close, code, reason})
 
         state
         |> Map.put(:timer, Process.send_after(self(), {:internal, :close}, :timer.seconds(5)))
@@ -359,7 +372,7 @@ defmodule Websocket do
              :handle_cast,
              :handle_info
            ] ->
-        _ = send_if_connected(state, :close)
+        send_if_connected(state, :close)
 
         state
         |> Map.put(:timer, Process.send_after(self(), {:internal, :close}, :timer.seconds(5)))
