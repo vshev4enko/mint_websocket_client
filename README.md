@@ -1,6 +1,8 @@
 # Websocket
 
-**TODO: Add description**
+[![CI](https://github.com/vshev4enko/websocket/actions/workflows/ci.yml/badge.svg)](https://github.com/vshev4enko/websocket/actions/workflows/ci.yml)
+
+A behaviour for implementing the websocket clients.
 
 ## Installation
 
