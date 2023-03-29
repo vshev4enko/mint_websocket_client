@@ -3,6 +3,8 @@ defmodule Websocket do
   A behaviour module for implementing the websocket clients.
   """
 
+  @callback init(opts :: term()) ::
+              {:ok, state :: term()}
   @callback handle_connect(conn :: Mint.HTTP.t(), state :: term()) ::
               {:ok, state :: term()}
               | {:reply, frame :: Mint.WebSocket.frame(), state :: term()}
@@ -39,6 +41,11 @@ defmodule Websocket do
       defoverridable child_spec: 1
 
       @impl true
+      def init(opts) do
+        {:ok, opts}
+      end
+
+      @impl true
       def handle_cast(_request, state) do
         {:ok, state}
       end
@@ -53,7 +60,7 @@ defmodule Websocket do
         :ok
       end
 
-      defoverridable handle_cast: 2, handle_info: 2, terminate: 2
+      defoverridable init: 1, handle_cast: 2, handle_info: 2, terminate: 2
     end
   end
 
@@ -97,7 +104,7 @@ defmodule Websocket do
   """
   @spec start_link(
           url :: String.t() | URI.t(),
-          handler :: module() | {module(), term()},
+          handler :: module(),
           opts :: [{:name, atom()} | Keyword.t()]
         ) :: GenServer.on_start()
   def start_link(url, handler, opts) do
@@ -128,11 +135,7 @@ defmodule Websocket do
 
   @impl true
   def init({url, handler, opts}) do
-    {handler, handler_state} =
-      case handler do
-        {handler, handler_state} -> {handler, handler_state}
-        handler -> {handler, nil}
-      end
+    {:ok, handler_state} = apply(handler, :init, [opts])
 
     state = %State{
       uri: URI.parse(url),
@@ -209,9 +212,7 @@ defmodule Websocket do
     dispatch(state, :terminate, [reason])
   end
 
-  ####################
   # Private
-  ####################
 
   defp do_handle_http_reply(%State{conn: conn} = state, http_reply) do
     case Mint.WebSocket.stream(conn, http_reply) do
@@ -272,8 +273,6 @@ defmodule Websocket do
 
         state
         |> Map.put(:websocket, websocket)
-        # |> Map.put(:connected, false)
-        # |> Map.put(:error, error)
         |> handle_response(response)
     end
   end
