@@ -71,7 +71,6 @@ defmodule Websocket do
             conn: Mint.HTTP.t(),
             ref: Mint.Types.request_ref(),
             websocket: Mint.WebSocket.t(),
-            connected: boolean(),
             handler: module(),
             handler_state: term(),
             timer: reference(),
@@ -82,7 +81,6 @@ defmodule Websocket do
               conn: nil,
               ref: nil,
               websocket: nil,
-              connected: false,
               handler: nil,
               handler_state: nil,
               timer: nil,
@@ -112,25 +110,24 @@ defmodule Websocket do
     GenServer.start_link(__MODULE__, {url, handler, opts}, server_opts)
   end
 
-  # TODO: If you gonna use ws extensions or ws over http2 you should update
-  # conn and websocket state every frame, in order to do that implement send_frame via
-  # process `handle_cast/2 -> {:reply, frame, state}` callback.
-  @spec send_frame(GenServer.server(), Mint.WebSocket.frame()) ::
+  @doc """
+  Sends a frame to the server.
+  """
+  @spec send_frame(client :: GenServer.server(), frame :: Mint.WebSocket.frame()) ::
           :ok
           | {:error, :disconnected}
           | {:error, Mint.WebSocket.t(), any()}
           | {:error, Mint.HTTP.t(), Mint.WebSocket.error()}
   def send_frame(client \\ __MODULE__, frame) do
-    with {:ok, {conn, ref, websocket}} <- GenServer.call(client, :get_connection),
-         {:ok, _websocket, data} <- Mint.WebSocket.encode(websocket, frame),
-         {:ok, _conn} <- Mint.WebSocket.stream_request_body(conn, ref, data) do
-      :ok
-    end
+    GenServer.call(client, {:"$websocket", frame})
   end
 
-  @spec cast(GenServer.server(), term()) :: :ok
-  def cast(client \\ __MODULE__, message) do
-    GenServer.cast(client, {:cast, message})
+  @doc """
+  Casts a request to the ws client.
+  """
+  @spec cast(client :: GenServer.server(), request :: term()) :: :ok
+  def cast(client \\ __MODULE__, request) do
+    GenServer.cast(client, {:"$websocket", request})
   end
 
   @impl true
@@ -173,25 +170,41 @@ defmodule Websocket do
   end
 
   @impl true
-  def handle_call(:get_connection, _from, %State{connected: true} = state) do
-    {:reply, {:ok, {state.conn, state.ref, state.websocket}}, state}
+  def handle_call({:"$websocket", frame}, _from, %State{conn: conn, websocket: websocket} = state)
+      when not is_nil(conn) and not is_nil(websocket) do
+    {reply, state} =
+      case Mint.WebSocket.encode(websocket, frame) do
+        {:ok, websocket, data} ->
+          case Mint.WebSocket.stream_request_body(conn, state.ref, data) do
+            {:ok, conn} ->
+              {:ok, state |> Map.put(:conn, conn) |> Map.put(:websocket, websocket)}
+
+            {:error, conn, error} ->
+              {{:error, error}, state |> Map.put(:conn, conn) |> Map.put(:websocket, websocket)}
+          end
+
+        {:error, websocket, error} ->
+          {{:error, error}, state |> Map.put(:websocket, websocket)}
+      end
+
+    {:reply, reply, state}
   end
 
-  def handle_call(:get_connection, _from, %State{} = state) do
+  def handle_call({:"$websocket", _frame}, _from, %State{} = state) do
     {:reply, {:error, :disconnected}, state}
   end
 
   @impl true
-  def handle_cast({:cast, request}, %State{} = state) do
+  def handle_cast({:"$websocket", request}, %State{} = state) do
     {:noreply, dispatch(state, :handle_cast, [request])}
   end
 
   @impl true
-  def handle_info({:internal, :connect}, state) do
+  def handle_info({:"$websocket", :connect}, state) do
     {:noreply, state, {:continue, :connect}}
   end
 
-  def handle_info({:internal, :close}, %State{conn: conn} = state) do
+  def handle_info({:"$websocket", :close}, %State{conn: conn} = state) do
     {:ok, conn} =
       if conn do
         Mint.HTTP.close(conn)
@@ -234,15 +247,17 @@ defmodule Websocket do
         |> handle_response(response)
 
       {:error, conn, error, response} ->
+        unless Enum.empty?(response) do
+          Logger.warning("Websocket stream error, response: #{inspect(response)}")
+        end
+
         state
-        |> Map.put(:conn, conn)
-        |> Map.put(:connected, false)
         |> cancel_timer()
-        |> handle_response(response)
+        |> Map.put(:conn, conn)
         |> dispatch(:handle_disconnect, [error])
 
       :unknown ->
-        Logger.warning("Websocket got an unknown message, #{inspect(http_reply)}")
+        Logger.warning("Websocket stream unknown message: #{inspect(http_reply)}")
         state
     end
   end
@@ -258,14 +273,14 @@ defmodule Websocket do
         state
         |> Map.put(:conn, conn)
         |> Map.put(:websocket, websocket)
-        |> Map.put(:connected, true)
         |> dispatch(:handle_connect, [conn])
         |> handle_response(response)
 
       {:error, conn, error} ->
+        Logger.warning("Websocket new error: #{inspect(error)}")
+
         state
         |> Map.put(:conn, conn)
-        |> Map.put(:connected, false)
         |> dispatch(:handle_disconnect, [error])
         |> handle_response(response)
     end
@@ -282,7 +297,7 @@ defmodule Websocket do
         |> handle_response(response)
 
       {:error, websocket, error} ->
-        Logger.warning("Websocket decode error: #{error}")
+        Logger.warning("Websocket decode error: #{inspect(error)}")
 
         state
         |> Map.put(:websocket, websocket)
@@ -295,7 +310,7 @@ defmodule Websocket do
   end
 
   defp handle_response(%State{ref: ref} = state, [{:error, ref, reason} | response]) do
-    Logger.warning("Websocket got an error frame: #{reason}")
+    Logger.warning("Websocket got an error response: #{inspect(reason)}")
 
     handle_response(state, response)
   end
@@ -346,25 +361,18 @@ defmodule Websocket do
              :handle_cast,
              :handle_info
            ] ->
-        case send_if_connected(state, frame) do
-          {:ok, state} ->
-            Map.put(state, :handler_state, handler_state)
-
-          {:error, state, error} ->
-            state
-            |> Map.put(:handler_state, handler_state)
-            |> dispatch(:handle_disconnect, [error])
-        end
+        state
+        |> stream_request_body(frame)
+        |> Map.put(:handler_state, handler_state)
 
       {:close, {code, reason}, handler_state}
       when function in [
              :handle_cast,
              :handle_info
            ] ->
-        send_if_connected(state, {:close, code, reason})
-
         state
-        |> Map.put(:timer, Process.send_after(self(), {:internal, :close}, :timer.seconds(5)))
+        |> stream_request_body({:close, code, reason})
+        |> Map.put(:timer, Process.send_after(self(), {:"$websocket", :close}, :timer.seconds(5)))
         |> Map.put(:handler_state, handler_state)
 
       {:close, handler_state}
@@ -372,53 +380,43 @@ defmodule Websocket do
              :handle_cast,
              :handle_info
            ] ->
-        send_if_connected(state, :close)
-
         state
-        |> Map.put(:timer, Process.send_after(self(), {:internal, :close}, :timer.seconds(5)))
+        |> stream_request_body(:close)
+        |> Map.put(:timer, Process.send_after(self(), {:"$websocket", :close}, :timer.seconds(5)))
         |> Map.put(:handler_state, handler_state)
 
       {:reconnect, timeout, handler_state}
-      when function in [
-             :handle_disconnect
-           ] ->
-        Process.send_after(self(), {:internal, :connect}, timeout)
+      when function == :handle_disconnect ->
+        Process.send_after(self(), {:"$websocket", :connect}, timeout)
         Map.put(state, :handler_state, handler_state)
 
       {:reconnect, handler_state}
-      when function in [
-             :handle_disconnect
-           ] ->
-        Process.send(self(), {:internal, :connect}, [])
+      when function == :handle_disconnect ->
+        Process.send(self(), {:"$websocket", :connect}, [])
         Map.put(state, :handler_state, handler_state)
 
-      _ when function == :terminate ->
+      _any when function == :terminate ->
         state
     end
   end
 
-  defp send_if_connected(%State{conn: conn, websocket: websocket} = state, frame) do
-    if not is_nil(websocket) and not is_nil(conn) and Mint.HTTP.open?(conn) do
-      with {:ok, websocket, data} <- Mint.WebSocket.encode(websocket, frame),
-           {:ok, conn} <- Mint.WebSocket.stream_request_body(conn, state.ref, data) do
-        {:ok,
-         state
-         |> Map.put(:conn, conn)
-         |> Map.put(:websocket, websocket)}
-      else
-        {:error, %Mint.WebSocket{} = websocket, error} ->
-          Logger.warning("Websocket encode error: #{inspect(error)}")
-          {:ok, Map.put(state, :websocket, websocket)}
+  # we ignore frame streaming if error occured or connection was not established
+  defp stream_request_body(%State{conn: conn, websocket: websocket} = state, frame)
+       when not is_nil(conn) and not is_nil(websocket) do
+    {:ok, websocket, data} = Mint.WebSocket.encode(websocket, frame)
 
-        {:error, conn, error} ->
-          Logger.warning("Websocket can't send a message due to: #{inspect(error)}")
-          {:error, Map.put(state, :conn, conn), error}
+    {:ok, conn} =
+      with {:error, conn, error} <- Mint.WebSocket.stream_request_body(conn, state.ref, data) do
+        Logger.warning("Websocket stream_request_body error: #{inspect(error)}")
+        {:ok, conn}
       end
-    else
-      Logger.warning("Websocket not connected, message will be dropped")
-      {:ok, state}
-    end
+
+    state
+    |> Map.put(:conn, conn)
+    |> Map.put(:websocket, websocket)
   end
+
+  defp stream_request_body(%State{} = state, _frame), do: state
 
   defp http_scheme(%URI{scheme: "ws"}), do: :http
   defp http_scheme(%URI{scheme: "wss"}), do: :https

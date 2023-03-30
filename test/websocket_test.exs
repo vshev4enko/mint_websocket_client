@@ -29,7 +29,7 @@ defmodule WebsocketTest do
     @impl true
     def handle_connect(conn, state) do
       send(state.send_to, {:ws_client_connect, conn})
-      {:reply, {:text, "{\"action\":\"subscribe\"}"}, state}
+      {:reply, {:text, ~s|{"action": "subscribe"}|}, state}
     end
 
     @impl true
@@ -71,7 +71,7 @@ defmodule WebsocketTest do
 
   test "handle_connect" do
     assert_receive {:ws_client_connect, _conn}, 1000
-    assert_receive {:ws_server_frame, {:text, "{\"action\":\"subscribe\"}"}}
+    assert_receive {:ws_server_frame, {:text, ~s|{"action": "subscribe"}|}}
   end
 
   @tag :connected
