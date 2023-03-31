@@ -17,6 +17,53 @@ def deps do
 end
 ```
 
+## Usage
+
+Keep in mind all frames you return in `{:reply, frame, state}` will not be delivered in disconnected state.
+
+```elixir
+defmodule WS do
+  use Websocket
+
+  def start_link(opts \\ []) do
+    opts =
+      opts
+      |> Keyword.put_new(:name, __MODULE__)
+      |> Keyword.put_new(:protocols, [:http1])
+      |> Keyword.put_new(:transport_opts, verify: :verify_none)
+
+    Websocket.start_link("wss://feed.exchange.com/", __MODULE__, opts)
+  end
+
+  @impl true
+  def handle_connect(_conn, state) do
+    text = ~s|{"action": "subscribe"}|
+
+    {:reply, {:text, text}, state}
+  end
+
+  @impl true
+  def handle_disconnect(_reason, state) do
+    {:reconnect, state}
+  end
+
+  @impl true
+  def handle_frame({:ping, ""}, state) do
+    {:reply, :pong, state}
+  end
+
+  def handle_frame({:text, text}, state) do
+    # do handle message
+    {:ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, _state) do
+    # do some cleanup if necessary
+  end
+end
+```
+
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/websocket>.
