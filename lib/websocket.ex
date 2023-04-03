@@ -106,7 +106,7 @@ defmodule Websocket do
           opts :: [{:name, atom()} | Keyword.t()]
         ) :: GenServer.on_start()
   def start_link(url, handler, opts) do
-    {server_opts, opts} = Keyword.split(opts, [:name])
+    server_opts = Keyword.take(opts, [:name])
     GenServer.start_link(__MODULE__, {url, handler, opts}, server_opts)
   end
 
@@ -134,6 +134,8 @@ defmodule Websocket do
   def init({url, handler, opts}) do
     {:ok, handler_state} = apply(handler, :init, [opts])
 
+    opts = Keyword.drop(opts, [:name])
+
     state = %State{
       uri: URI.parse(url),
       opts: opts,
@@ -145,17 +147,13 @@ defmodule Websocket do
   end
 
   @impl true
-  def handle_continue(:connect, %State{uri: uri, conn: conn} = state) do
-    if not is_nil(conn) and Mint.HTTP.open?(conn) do
-      {:noreply, state, {:continue, :upgrade}}
-    else
-      case Mint.HTTP.connect(http_scheme(uri), uri.host, uri.port, state.opts) do
-        {:ok, conn} ->
-          {:noreply, Map.put(state, :conn, conn), {:continue, :upgrade}}
+  def handle_continue(:connect, %State{uri: uri} = state) do
+    case Mint.HTTP.connect(http_scheme(uri), uri.host, uri.port, state.opts) do
+      {:ok, conn} ->
+        {:noreply, Map.put(state, :conn, conn), {:continue, :upgrade}}
 
-        {:error, error} ->
-          {:noreply, dispatch(state, :handle_disconnect, [error])}
-      end
+      {:error, error} ->
+        {:noreply, dispatch(state, :handle_disconnect, [error])}
     end
   end
 
@@ -165,7 +163,8 @@ defmodule Websocket do
         {:noreply, state |> Map.put(:conn, conn) |> Map.put(:ref, ref)}
 
       {:error, conn, error} ->
-        {:noreply, state |> Map.put(:conn, conn) |> dispatch(:handle_disconnect, [error])}
+        Mint.HTTP.close(conn)
+        {:noreply, state |> Map.put(:conn, nil) |> dispatch(:handle_disconnect, [error])}
     end
   end
 
@@ -205,18 +204,14 @@ defmodule Websocket do
   end
 
   def handle_info({:"$websocket", :close}, %State{conn: conn} = state) do
-    {:ok, conn} =
-      if conn do
-        Mint.HTTP.close(conn)
-      else
-        {:ok, nil}
-      end
+    Mint.HTTP.close(conn)
 
     state =
       state
-      |> Map.put(:conn, conn)
+      |> Map.put(:conn, nil)
       |> Map.put(:timer, nil)
-      |> dispatch(:handle_disconnect, [{:local, :close}])
+      |> Map.put(:websocket, nil)
+      |> dispatch(:handle_disconnect, [{:local, :closed}])
 
     {:noreply, state}
   end
@@ -239,27 +234,38 @@ defmodule Websocket do
 
   # Private
 
-  defp do_handle_http_reply(%State{conn: conn} = state, http_reply) do
-    case Mint.WebSocket.stream(conn, http_reply) do
+  # ignore all transport messages in disconnected state
+  defp do_handle_http_reply(%State{conn: nil} = state, _http_reply), do: state
+
+  defp do_handle_http_reply(%State{conn: conn} = state, http_reply)
+       when elem(http_reply, 1) == conn.socket do
+    case Mint.WebSocket.stream(state.conn, http_reply) do
       {:ok, conn, response} ->
         state
         |> Map.put(:conn, conn)
         |> handle_response(response)
 
-      {:error, conn, error, response} ->
-        unless Enum.empty?(response) do
-          Logger.warning("Websocket stream error, response: #{inspect(response)}")
-        end
+      {:error, conn, error, _response} ->
+        Mint.HTTP.close(conn)
 
         state
-        |> cancel_timer()
-        |> Map.put(:conn, conn)
+        |> Map.put(:conn, nil)
+        |> Map.put(:websocket, nil)
+        |> purge_timer({:"$websocket", :close})
         |> dispatch(:handle_disconnect, [error])
 
       :unknown ->
         Logger.warning("Websocket stream unknown message: #{inspect(http_reply)}")
         state
     end
+  end
+
+  defp do_handle_http_reply(%State{conn: conn} = state, http_reply) do
+    Logger.warning(
+      "Websocket got reply from wrong socket reply: #{inspect(http_reply)}, socket: #{inspect(conn.socket)}"
+    )
+
+    state
   end
 
   defp handle_response(%State{} = state, []), do: state
@@ -277,12 +283,12 @@ defmodule Websocket do
         |> handle_response(response)
 
       {:error, conn, error} ->
-        Logger.warning("Websocket new error: #{inspect(error)}")
+        Mint.HTTP.close(conn)
 
         state
-        |> Map.put(:conn, conn)
+        |> Map.put(:conn, nil)
+        |> Map.put(:websocket, nil)
         |> dispatch(:handle_disconnect, [error])
-        |> handle_response(response)
     end
   end
 
@@ -326,11 +332,19 @@ defmodule Websocket do
     handle_response(state, response)
   end
 
+  defp handle_response(%State{ref: ref} = state, [item | response]) do
+    Logger.warning(
+      "Websocket response mismatch ref: #{inspect(ref)}, reponse item: #{inspect(item)}"
+    )
+
+    handle_response(state, response)
+  end
+
   defp handle_frames(%State{} = state, []), do: state
 
   defp handle_frames(%State{} = state, [{:close, _code, _reason} | frames]) do
     state
-    |> cancel_timer()
+    |> purge_timer({:"$websocket", :close})
     |> handle_frames(frames)
   end
 
@@ -424,10 +438,21 @@ defmodule Websocket do
   defp ws_scheme(%URI{scheme: "ws"}), do: :ws
   defp ws_scheme(%URI{scheme: "wss"}), do: :wss
 
-  defp cancel_timer(%State{timer: nil} = state), do: state
+  defp purge_timer(%State{timer: nil} = state, _msg), do: state
 
-  defp cancel_timer(%State{timer: ref} = state) do
-    Process.cancel_timer(ref)
+  defp purge_timer(%State{timer: ref} = state, msg) do
+    case Process.cancel_timer(ref) do
+      i when is_integer(i) ->
+        :ok
+
+      false ->
+        receive do
+          ^msg -> :ok
+        after
+          100 -> :ok
+        end
+    end
+
     Map.put(state, :timer, nil)
   end
 end
