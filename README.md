@@ -19,7 +19,7 @@ end
 
 ## Usage
 
-Keep in mind all frames you return in `{:reply, frame, state}` will not be delivered in disconnected state.
+Keep in mind all frames you return in `{:reply, frame, state}` might be lost depends on connection state.
 
 ```elixir
 defmodule WS do
@@ -37,6 +37,7 @@ defmodule WS do
 
   @impl true
   def handle_connect(_conn, state) do
+    # subscribe
     text = ~s|{"action": "subscribe"}|
 
     {:reply, {:text, text}, state}
@@ -44,6 +45,7 @@ defmodule WS do
 
   @impl true
   def handle_disconnect(_reason, state) do
+    # notify about disconnect
     {:reconnect, state}
   end
 
