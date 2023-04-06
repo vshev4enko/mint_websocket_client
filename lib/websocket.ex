@@ -430,8 +430,7 @@ defmodule Websocket do
     {:ok, websocket, data} = Mint.WebSocket.encode(websocket, frame)
 
     {:ok, conn} =
-      with {:error, conn, error} <- Mint.WebSocket.stream_request_body(conn, state.ref, data) do
-        Logger.warning("Websocket stream_request_body error: #{inspect(error)}")
+      with {:error, conn, _error} <- Mint.WebSocket.stream_request_body(conn, state.ref, data) do
         {:ok, conn}
       end
 
