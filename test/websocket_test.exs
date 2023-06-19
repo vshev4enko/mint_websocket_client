@@ -27,8 +27,8 @@ defmodule WebsocketTest do
     end
 
     @impl true
-    def handle_connect(conn, state) do
-      send(state.send_to, {:ws_client_connect, conn})
+    def handle_connect(status_map, state) do
+      send(state.send_to, {:ws_client_connect, status_map})
       {:reply, {:text, ~s|{"action": "subscribe"}|}, state}
     end
 

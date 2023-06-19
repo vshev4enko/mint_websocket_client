@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/vshev4enko/websocket/actions/workflows/ci.yml/badge.svg)](https://github.com/vshev4enko/websocket/actions/workflows/ci.yml)
 
-A behaviour for implementing the websocket clients.
+Websocket is a behaviour for implementing websocket clients.
 
 ## Installation
 
@@ -50,12 +50,7 @@ defmodule WS do
   end
 
   @impl true
-  def handle_frame({:ping, ""}, state) do
-    {:reply, :pong, state}
-  end
-
-  def handle_frame({:text, text}, state) do
-    # do handle message
+  def handle_frame(frame, state) do
     {:ok, state}
   end
 
