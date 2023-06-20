@@ -8,8 +8,8 @@ concurrency:
 
 env:
   MIX_ENV: test
-  OTP_VERSION: '25.3'
-  ELIXIR_VERSION: '1.14.3'
+  OTP_VERSION: '25.3.2.2'
+  ELIXIR_VERSION: '1.15.0'
 
 jobs:
   workflow:
