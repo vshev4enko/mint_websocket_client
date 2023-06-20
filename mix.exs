@@ -4,11 +4,15 @@ defmodule Websocket.MixProject do
   def project do
     [
       app: :websocket,
+      name: "Websocket",
       version: "0.1.0",
       elixir: "~> 1.14",
-      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      docs: [
+        main: "Websocket",
+        extras: ["README.md"]
+      ]
     ]
   end
 
@@ -19,14 +23,11 @@ defmodule Websocket.MixProject do
     ]
   end
 
-  # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
-
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:cowboy, "~> 2.9", only: [:test]},
+      {:cowboy, "~> 2.9", optional: true},
+      {:ex_doc, "~> 0.27", only: :dev, runtime: false},
       {:mint_web_socket, "~> 1.0"}
     ]
   end
