@@ -218,6 +218,7 @@ defmodule Websocket do
             headers: Mint.Types.headers(),
             handler: module(),
             handler_state: term(),
+            closing?: boolean(),
             timer: reference(),
             opts: keyword()
           }
@@ -230,6 +231,7 @@ defmodule Websocket do
               headers: nil,
               handler: nil,
               handler_state: nil,
+              closing?: false,
               timer: nil,
               opts: []
   end
@@ -348,36 +350,23 @@ defmodule Websocket do
         websocket: nil,
         status: nil,
         headers: nil,
-        timer: nil
+        closing?: false
     }
 
     {:noreply, state, {:continue, :connect}}
   end
 
   def handle_info({:"$websocket", {:close, frame}}, %State{} = state) do
-    Mint.HTTP.close(state.conn)
+    {:ok, conn} = Mint.HTTP.close(state.conn)
+    state = %{state | conn: conn, closing?: true, timer: nil}
     state = dispatch(state, :handle_disconnect, [frame])
     {:noreply, state}
   end
 
-  def handle_info(message, %State{} = state)
-      when is_tuple(message) and
-             elem(message, 0) in [:tcp, :ssl, :tcp_closed, :ssl_closed, :tcp_error, :ssl_error] do
-    case Mint.WebSocket.stream(state.conn, message) do
-      {:ok, conn, responses} ->
-        state = %{state | conn: conn}
-        state = Enum.reduce(responses, state, &process_response/2)
-        {:noreply, state}
-
-      {:error, conn, error, responses} ->
-        state = %{state | conn: conn}
-        state = Enum.reduce(responses, state, &process_response/2)
-        state = dispatch(state, :handle_disconnect, [error])
-        {:noreply, state}
-
-      :unknown ->
-        {:noreply, state}
-    end
+  def handle_info(http_reply, %State{} = state)
+      when is_tuple(http_reply) and
+             elem(http_reply, 0) in [:tcp, :ssl, :tcp_closed, :ssl_closed, :tcp_error, :ssl_error] do
+    {:noreply, process_http_reply(http_reply, state)}
   end
 
   def handle_info(message, state) do
@@ -395,6 +384,27 @@ defmodule Websocket do
   end
 
   # Private
+
+  defp process_http_reply(http_reply, %State{closing?: false} = state) do
+    case Mint.WebSocket.stream(state.conn, http_reply) do
+      {:ok, conn, responses} ->
+        state = %{state | conn: conn}
+        Enum.reduce(responses, state, &process_response/2)
+
+      {:error, conn, error, responses} ->
+        state = %{state | conn: conn}
+        state = Enum.reduce(responses, state, &process_response/2)
+        dispatch(state, :handle_disconnect, [error])
+
+      :unknown ->
+        state
+    end
+  end
+
+  # we ignore messages in closing state
+  defp process_http_reply(_http_reply, %State{closing?: true} = state) do
+    state
+  end
 
   defp process_response(response, state)
 
