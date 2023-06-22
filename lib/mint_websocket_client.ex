@@ -2,10 +2,6 @@ defmodule MintWebsocketClient do
   @moduledoc """
   A behaviour module for implementing websocket clients.
 
-  MintWebsocketClient is a behaviour module built on top of GenServer to build processfull websocket client
-  using [Mint](https://hex.pm/packages/mint) and [Mint.WebSocket](https://hex.pm/packages/mint_web_socket)
-  to establish and maintain the Websocket connection.
-
   ## Example
 
       defmodule WS do
@@ -46,8 +42,8 @@ defmodule MintWebsocketClient do
         end
       end
 
-  We leave all the hussle of opening/closing/reconnecting details to the Websocket
-  behaviour and focus only on the callback implementation. We can now use the Websocket API to
+  We leave all the hussle of opening/closing/reconnecting details to the MintWebsocketClient
+  behaviour and focus only on the callback implementation. We can now use the MintWebsocketClient API to
   interact with the remote websocket service.
 
       # Start the process
@@ -63,8 +59,8 @@ defmodule MintWebsocketClient do
 
   > #### `use Websocket` {: .info}
   >
-  > When you `use Websocket`, the `Websocket` module will
-  > set `@behaviour Websocket` and define a `child_spec/1`
+  > When you `use MintWebsocketClient`, the `MintWebsocketClient` module will
+  > set `@behaviour MintWebsocketClient` and define a `child_spec/1`
   > function, so your module can be used as a child
   > in a supervision tree.
   """
@@ -72,7 +68,7 @@ defmodule MintWebsocketClient do
   @doc """
   Invoked in process init.
 
-  Good place to initialyze state and setup process flags.
+  Good place to initialize state and setup process flags.
 
   This callback is optional. If one is not implemented, the default implementation
   will return `{:ok, nil}`.
@@ -236,13 +232,13 @@ defmodule MintWebsocketClient do
   require Logger
 
   @doc """
-  Starts the `Websocket` process linked to the current process.
+  Starts the `MintWebsocketClient` process linked to the current process.
 
   ## Options
 
     * `:name` - used for name registration
 
-    All available options see Mint.HTTP.connect/4.
+    All available options see `Mint.HTTP.connect/4`.
   """
   @spec start_link(
           url :: String.t() | URI.t(),
@@ -267,7 +263,7 @@ defmodule MintWebsocketClient do
   end
 
   @doc """
-  Casts request to the server.
+  Casts request to the underlying process.
   """
   @spec cast(server :: GenServer.server(), request :: term()) :: :ok
   def cast(server \\ __MODULE__, request) do

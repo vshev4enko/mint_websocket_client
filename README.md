@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/vshev4enko/mint_websocket_client/actions/workflows/ci.yml/badge.svg)](https://github.com/vshev4enko/mint_websocket_client/actions/workflows/ci.yml)
 
-Behaviour module built on top of GenServer to build processfull websocket client
-using [Mint](https://hex.pm/packages/mint) and [Mint.WebSocket](https://hex.pm/packages/mint_web_socket)
-to establish and maintain the Websocket connection.
+MintWebsocketClient is a behaviour on top of GenServer providing convenient interface to build websocket clients.
+
+Using [Mint](https://hex.pm/packages/mint) and [Mint.WebSocket](https://hex.pm/packages/mint_web_socket) under the hood.
 
 ## Usage
 
@@ -18,11 +18,11 @@ def deps do
 end
 ```
 
-Next, run mix deps.get in your shell to fetch and compile MintWebsocketClient. Start an interactive Elixir shell with iex -S mix:
+Next, run mix deps.get in your shell to fetch and compile `MintWebsocketClient`. Start an interactive Elixir shell with iex -S mix:
 
 # Examples
 
-Keep in mind all frames you return in `{:reply, frame, state}` might be lost depends on connection state.
+Keep in mind frame you return in `{:reply, frame, state}` might be lost depends on the connection state.
 
 ```elixir
 defmodule WS do
