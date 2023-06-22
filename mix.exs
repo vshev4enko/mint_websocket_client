@@ -1,16 +1,16 @@
-defmodule Websocket.MixProject do
+defmodule MintWebsocketClient.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :websocket,
-      name: "Websocket",
+      app: :mint_websocket_client,
+      name: "MintWebsocketClient",
       version: "0.1.0",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: [
-        main: "Websocket",
+        main: "MintWebsocketClient",
         extras: ["README.md"]
       ]
     ]

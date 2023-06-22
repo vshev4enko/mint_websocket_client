@@ -1,28 +1,27 @@
-defmodule Websocket do
+defmodule MintWebsocketClient do
   @moduledoc """
   A behaviour module for implementing websocket clients.
 
-  A Websocket is a process build on to of Elixir GenServer which wraps
-  interaction with the remote websocket server ensuring opened connection and keeping
-  client state.
+  MintWebsocketClient is a behaviour module built on top of GenServer to build processfull websocket client
+  using [Mint](https://hex.pm/packages/mint) and [Mint.WebSocket](https://hex.pm/packages/mint_web_socket)
+  to establish and maintain the Websocket connection.
 
   ## Example
 
       defmodule WS do
-        use Websocket
+        use MintWebsocketClient
 
-        def start_link(opts \\ []) do
+        def start_link(url, opts \\ []) do
           opts =
             opts
             |> Keyword.put_new(:name, __MODULE__)
             |> Keyword.put_new(:protocols, [:http1])
-            |> Keyword.put_new(:transport_opts, verify: :verify_none)
 
-          Websocket.start_link("wss://feed.exchange.com/", __MODULE__, opts)
+          MintWebsocketClient.start_link(url, __MODULE__, opts)
         end
 
         @impl true
-        def handle_connect(_conn, state) do
+        def handle_connect(status_map, state) do
           # subscribe
           message = ~s|{"action": "subscribe"}|
 
@@ -30,23 +29,19 @@ defmodule Websocket do
         end
 
         @impl true
-        def handle_disconnect(_reason, state) do
+        def handle_disconnect(reason, state) do
           # notify about disconnect
           {:reconnect, state}
         end
 
         @impl true
-        def handle_frame({:ping, ""}, state) do
-          {:reply, :pong, state}
-        end
-
-        def handle_frame({:text, text}, state) do
-          # do handle message
+        def handle_frame(frame, state) do
+          # do handle frame
           {:ok, state}
         end
 
         @impl true
-        def terminate(_reason, _state) do
+        def terminate(reason, _state) do
           # do some cleanup if necessary
         end
       end
@@ -56,14 +51,14 @@ defmodule Websocket do
   interact with the remote websocket service.
 
       # Start the process
-      {:ok, pid} = WS.start_link()
+      {:ok, pid} = WS.start_link("wss://feed.exchange.com/")
 
       # Sends :ping frame to the server
-      WS.send_frame(pid, :ping)
+      MintWebsocketClient.send_frame(pid, :ping)
       #=> :ok
 
       # Casts request to the WS process
-      WS.cast(pid, {:send_message, "elixir"})
+      MintWebsocketClient.cast(pid, {:send_message, "elixir"})
       #=> :ok
 
   > #### `use Websocket` {: .info}
@@ -172,7 +167,7 @@ defmodule Websocket do
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour Websocket
+      @behaviour MintWebsocketClient
 
       def child_spec(opts) do
         %{

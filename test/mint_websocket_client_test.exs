@@ -1,21 +1,25 @@
-defmodule WebsocketTest do
+defmodule MintWebsocketClientTest do
   use ExUnit.Case
 
-  alias Websocket.TestServer
+  alias MintWebsocketClient.TestServer
 
   defmodule TestClient do
-    use Websocket
+    use MintWebsocketClient
 
     def start_link(opts) do
-      Websocket.start_link(opts[:url], __MODULE__, Keyword.put_new(opts, :name, __MODULE__))
+      MintWebsocketClient.start_link(
+        opts[:url],
+        __MODULE__,
+        Keyword.put_new(opts, :name, __MODULE__)
+      )
     end
 
     def send_frame(client \\ __MODULE__, frame) do
-      Websocket.send_frame(client, frame)
+      MintWebsocketClient.send_frame(client, frame)
     end
 
     def cast(client \\ __MODULE__, request) do
-      Websocket.cast(client, request)
+      MintWebsocketClient.cast(client, request)
     end
 
     @impl true

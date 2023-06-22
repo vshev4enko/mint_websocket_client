@@ -1,5 +1,5 @@
 if Code.ensure_loaded?(:cowboy) do
-  defmodule Websocket.TestServer do
+  defmodule MintWebsocketClient.TestServer do
     @moduledoc false
 
     @behaviour :cowboy_websocket

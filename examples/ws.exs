@@ -1,13 +1,12 @@
-# Mix.install([{:websocket, git: "git@github.com:vshev4enko/websocket.git", branch: "main"}, :castore])
-Mix.install([{:websocket, path: "."}, :castore])
+Mix.install([{:mint_websocket_client, path: "."}, :castore])
 
 import ExUnit.Assertions
 
 defmodule WS do
-  use Websocket
+  use MintWebsocketClient
 
   def start_link(url, opts \\ []) do
-    Websocket.start_link(url, __MODULE__, opts)
+    MintWebsocketClient.start_link(url, __MODULE__, opts)
   end
 
   @impl true
@@ -48,13 +47,13 @@ assert_receive {:connected, _}, 1000
 
 assert_receive {:text, _}, 1000
 
-Websocket.send_frame(pid, :ping)
+MintWebsocketClient.send_frame(pid, :ping)
 assert_receive {:pong, _}, 1000
 
-Websocket.send_frame(pid, {:text, ~s|{"hello": "world"}|})
+MintWebsocketClient.send_frame(pid, {:text, ~s|{"hello": "world"}|})
 assert_receive {:text, _}, 1000
 
-Websocket.send_frame(pid, :close)
+MintWebsocketClient.send_frame(pid, :close)
 assert_receive {:disconnected, _}, 1000
 
 GenServer.stop(pid)
