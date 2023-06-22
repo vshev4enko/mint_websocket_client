@@ -385,7 +385,9 @@ defmodule Websocket do
 
   # Private
 
-  defp process_http_reply(http_reply, %State{closing?: false} = state) do
+  # we skip http_reply not for current active socket
+  defp process_http_reply(http_reply, %State{conn: %{socket: socket}, closing?: false} = state)
+       when is_tuple(http_reply) and elem(http_reply, 1) == socket do
     case Mint.WebSocket.stream(state.conn, http_reply) do
       {:ok, conn, responses} ->
         state = %{state | conn: conn}
@@ -401,8 +403,8 @@ defmodule Websocket do
     end
   end
 
-  # we ignore messages in closing state
-  defp process_http_reply(_http_reply, %State{closing?: true} = state) do
+  # we ignore http_replys in closing state or from wrong socket
+  defp process_http_reply(_http_reply, %State{} = state) do
     state
   end
 
@@ -424,6 +426,11 @@ defmodule Websocket do
     end
   end
 
+  # we skip data if no websocket to decode it
+  defp process_response({:data, ref, _data}, %{request_ref: ref, websocket: nil} = state) do
+    state
+  end
+
   defp process_response({:data, ref, data}, %{request_ref: ref, websocket: websocket} = state) do
     case Mint.WebSocket.decode(websocket, data) do
       {:ok, websocket, frames} ->
@@ -431,7 +438,7 @@ defmodule Websocket do
         Enum.reduce(frames, state, &handle_frame/2)
 
       {:error, websocket, error} ->
-        Logger.error(["[Websocket] got decode error: ", inspect(error)])
+        Logger.error(["[Websocket] decoding error: ", inspect(error)])
 
         %{state | websocket: websocket}
     end
@@ -461,7 +468,6 @@ defmodule Websocket do
   end
 
   # Invokes an implementations callbacks
-  # credo:disable-for-next-line
   defp dispatch(%State{handler: handler, handler_state: handler_state} = state, function, args) do
     case apply(handler, function, args ++ [handler_state]) do
       {:ok, handler_state}
