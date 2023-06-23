@@ -384,9 +384,9 @@ defmodule MintWebsocketClient do
         state = %{state | conn: conn}
         Enum.reduce(responses, state, &process_response/2)
 
-      {:error, conn, error, responses} ->
+      {:error, conn, error, _responses} ->
         state = %{state | conn: conn}
-        state = Enum.reduce(responses, state, &process_response/2)
+        state = purge_close_timer(state)
         dispatch(state, :handle_disconnect, [error])
 
       :unknown ->
@@ -451,7 +451,7 @@ defmodule MintWebsocketClient do
   end
 
   defp handle_frame({:close, _code, _reason}, %State{} = state) do
-    maybe_purge_close_timer(state)
+    purge_close_timer(state)
   end
 
   defp handle_frame(frame, %State{} = state) do
@@ -537,9 +537,9 @@ defmodule MintWebsocketClient do
     end
   end
 
-  defp maybe_purge_close_timer(%State{timer: nil} = state), do: state
+  defp purge_close_timer(%State{timer: nil} = state), do: state
 
-  defp maybe_purge_close_timer(%State{timer: ref} = state) do
+  defp purge_close_timer(%State{timer: ref} = state) do
     case Process.cancel_timer(ref) do
       i when is_integer(i) ->
         :ok
